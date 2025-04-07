@@ -1,11 +1,9 @@
-﻿namespace TodoApp.Models
+﻿using Microsoft.AspNetCore.Identity;
+
+namespace TodoApp.Models
 {
-    public class User
+    public class User: IdentityUser<int>
     {
-        public Guid UserID { get; set; }
-        public string Username { get; set; }
-        public string Email { get; set; }
-        public string PasswordHash { get; set; }
         public ICollection<Task> Tasks { get; set; }
 
     }

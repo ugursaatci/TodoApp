@@ -1,15 +1,15 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 
 namespace TodoApp.Models
 {
-    public class TodoContext : DbContext
+    public class TodoContext : IdentityDbContext<User, UserRole, int>
     {
         public TodoContext(DbContextOptions<TodoContext> options): base(options) 
         {
         }
 
         public DbSet<Task> Tasks { get; set; }
-        public DbSet<User> Users { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
