@@ -1,8 +1,11 @@
-﻿using System.Text.Json;
+﻿using System.IdentityModel.Tokens.Jwt;
+using System.Text.Json;
+using Azure.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration.UserSecrets;
 using TodoApp.Models;
 using TodoApp.Models.Requests;
 
@@ -13,6 +16,7 @@ namespace TodoApp.Controllers
     public class ApiController : ControllerBase
     {
         private readonly TodoContext _context;
+        private readonly string nameID = "nameid";
 
         public ApiController(TodoContext todoContext) 
         {
@@ -27,14 +31,22 @@ namespace TodoApp.Controllers
             {
                 return BadRequest("Invalid Request");
             }
+            var userId = getUserID(HttpContext.Request.Headers["Authorization"]);
+
+            if (request.DueTime < DateTime.Now)
+            {
+                return BadRequest("Görev Zamanı Geçmiş Olamaz!");
+            }
+            
             Models.Task task = new() 
             {
-                ID = Guid.NewGuid(),
+                ID = Guid.NewGuid().ToString(),
                 Title = request.Title,
                 Description = request.Description,
-                IsCompleted = true,
+                IsCompleted = false,
+                CreatedDate = DateTime.Now,
                 DueTime = request.DueTime,
-                UserID = request.UserID
+                UserID = userId,
             };
 
             try
@@ -45,14 +57,16 @@ namespace TodoApp.Controllers
             }
             catch (Exception)
             {
-
                 return StatusCode(500);
             }
         }
 
-        [HttpGet("get-todo-list")]
-        public async Task<IActionResult> GetTodos(int userId) 
+        [Authorize]
+        [HttpGet("get-task-list")]
+        public async Task<IActionResult> GetTaskList() 
         {
+            var userId = getUserID(HttpContext.Request.Headers["Authorization"]);
+
             var todoList = await _context.Tasks.Where(i => i.UserID == userId).ToListAsync();
             if (todoList.Count == 0)
             {
@@ -64,10 +78,28 @@ namespace TodoApp.Controllers
             return Ok(jsonString);
         }
 
+        [Authorize]
+        [HttpGet("get-task-detail")]
+        public async Task<IActionResult> GetTaskDetail(string taskId) 
+        {
+            var userId = getUserID(HttpContext.Request.Headers["Authorization"]);
+            var task = await _context.Tasks.FirstOrDefaultAsync(i => i.ID == taskId && i.UserID == userId);
+
+            if (task == null)
+            {
+                return BadRequest("Görev Bulunamadı!");
+            }
+
+            string result = JsonSerializer.Serialize(task);
+            return Ok(result);
+        }
+
+        [Authorize]
         [HttpPut("update-task")]
         public async Task<IActionResult> UpdateTodo(UpdateTodoRequest request)
         {
-            var todoTask = _context.Tasks.Where(u => u.ID == request.ID).FirstOrDefault();
+            var userId = getUserID(HttpContext.Request.Headers["Authorization"]);
+            var todoTask = _context.Tasks.Where(u => u.ID == request.ID && u.UserID == userId).FirstOrDefault();
             if (todoTask != null)
             {
                 todoTask.IsCompleted = request.IsCompleted;
@@ -77,11 +109,12 @@ namespace TodoApp.Controllers
                 return Ok(result);
             }
 
-            return BadRequest("Görev Bulunamadı");
+            throw new Exception("Görev Bulunamadı");
         }
 
+        [Authorize]
         [HttpDelete("delete-task")]
-        public async Task<IActionResult> DeleteTodo(Guid taskID)
+        public async Task<IActionResult> DeleteTodo(string taskID)
         {
             var todoTask = _context.Tasks.FirstOrDefault(u => u.ID == taskID);
             if (todoTask != null)
@@ -91,6 +124,32 @@ namespace TodoApp.Controllers
                 return Ok("Görev Silindi");
             }
             return BadRequest("Görev Bulunamadı");
+        }
+
+        private int getUserID(string token)
+        {
+            if (token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                token = token.Substring("Bearer ".Length).Trim();
+            }
+
+            var handler = new JwtSecurityTokenHandler();
+            try
+            {
+                var jwtToken = handler.ReadJwtToken(token);
+
+                var claim = jwtToken.Claims.FirstOrDefault(x => x.Type == nameID)?.Value;
+                if (claim != null && Int32.TryParse(claim, out int id))
+                {
+                    return id;
+                }
+
+                throw new Exception("Token Decode Edilirken Hata Oluştu!");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception("JWT Token çözülürken hata oluştu: " + ex.Message);
+            }
         }
     }
 }
